@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101114">
+  <title>YClash Admin</title>
+  <style>
+    :root{color-scheme:dark;--bg:#101114;--panel:rgba(27,29,32,.82);--line:#34373b;--ink:#f2f1ed;--muted:#a0a4a8;--red:#ed3945;--green:#63c69a;--amber:#f0bb58;--font:Inter,"Segoe UI",sans-serif}
+    *{box-sizing:border-box}
+    body{min-height:100vh;margin:0;color:var(--ink);font:14px/1.5 var(--font);background:radial-gradient(ellipse at 80% 5%,rgba(237,57,69,.13),transparent 30%),linear-gradient(135deg,#141619,#0c0d0f 58%,#151313);background-attachment:fixed}
+    button,input{font:inherit}
+    button,a{-webkit-tap-highlight-color:transparent}
+    button{cursor:pointer}
+    a{color:inherit}
+    [hidden]{display:none!important}
+    .shell{width:min(1240px,100%);margin:0 auto;padding:24px 28px 56px}
+    .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:18px;border-bottom:1px solid rgba(255,255,255,.1)}
+    .brand{display:flex;align-items:center;gap:11px;text-decoration:none}
+    .brand-mark{display:grid;place-items:center;width:39px;height:39px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:linear-gradient(145deg,#ee4149,#9d111c);font-weight:900;color:#fff}
+    .brand-copy strong,.brand-copy span{display:block}.brand-copy strong{font-size:13px;letter-spacing:.04em}.brand-copy span{color:var(--muted);font-size:11px}
+    .top-actions{display:flex;align-items:center;gap:12px}.back-link{color:#d7d8d8;font-size:12px;text-decoration:none}.back-link:hover{color:#fff}
+    .button{min-height:38px;padding:8px 13px;border:1px solid var(--line);border-radius:6px;background:#202226;color:var(--ink);font-weight:650;font-size:12px;transition:background .16s ease,border-color .16s ease,transform .16s ease}
+    .button:hover{border-color:#666a70;background:#292c31}.button:active{transform:translateY(1px)}
+    .button-primary{border-color:#e44a52;background:#d92f3b;color:white}.button-primary:hover{background:#ee414b}
+    .button-danger{border-color:rgba(237,57,69,.4);background:rgba(237,57,69,.1);color:#ff858b}.button-danger:hover{border-color:var(--red);background:rgba(237,57,69,.2)}
+    .button:disabled{opacity:.42;cursor:not-allowed}
+    .intro{padding:34px 0 25px}.eyebrow{margin:0 0 8px;color:#ed777d;font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+    h1{margin:0;font-size:clamp(26px,4vw,36px);line-height:1.08;letter-spacing:0} .intro p:last-child{max-width:620px;margin:9px 0 0;color:var(--muted);font-size:13px}
+    .login-wrap{display:grid;place-items:center;min-height:330px}
+    .login-panel{width:min(410px,100%);padding:24px;border:1px solid var(--line);border-radius:8px;background:var(--panel);box-shadow:0 24px 70px #0005;backdrop-filter:blur(20px)}
+    .login-panel h2{margin:0 0 6px;font-size:19px}.login-panel p{margin:0 0 20px;color:var(--muted);font-size:12px}
+    .field label{display:block;margin-bottom:6px;color:#d9dbdc;font-size:11px;font-weight:700}.field input,.search-input{width:100%;min-height:42px;padding:10px 12px;border:1px solid #44474c;border-radius:5px;outline:none;background:#111214;color:var(--ink)}
+    .field input:focus,.search-input:focus{border-color:#e75b63;box-shadow:0 0 0 3px rgba(237,57,69,.14)}
+    .login-panel .button{width:100%;margin-top:13px}
+    .message{min-height:20px;margin-top:10px;color:#ff9095;font-size:12px}
+    .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:22px}
+    .metric{min-height:76px;padding:13px 15px;border:1px solid rgba(255,255,255,.1);border-radius:6px;background:rgba(255,255,255,.035)}
+    .metric strong{display:block;font-size:24px;line-height:1.1}.metric span{display:block;margin-top:6px;color:var(--muted);font-size:10px}
+    .admin-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);align-items:start;gap:24px}
+    .admin-grid>section{min-width:0}
+    .section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px}.section-heading h2{margin:0;font-size:16px}.section-heading span{color:var(--muted);font-size:11px}
+    .list-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:11px}.search-input{min-height:38px;font-size:12px}
+    .account-list{overflow:hidden;border:1px solid rgba(255,255,255,.11);border-radius:6px;background:rgba(15,16,18,.5)}
+    .account-head,.account-row{display:grid;grid-template-columns:minmax(100px,1.1fr) minmax(76px,.7fr) 44px 70px 70px 70px;align-items:center;gap:9px;padding:11px 12px}
+    .account-head{border-bottom:1px solid var(--line);color:#a7aaad;font-size:9px;font-weight:750;letter-spacing:.07em;text-transform:uppercase}
+    .account-row{width:100%;border:0;border-bottom:1px solid rgba(255,255,255,.07);background:transparent;color:var(--ink);text-align:left;font-size:11px}
+    .account-row:last-child{border-bottom:0}.account-row:hover{background:rgba(255,255,255,.045)}.account-row.is-selected{background:rgba(237,57,69,.1);box-shadow:inset 2px 0 var(--red)}
+    .account-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:750}.account-date,.account-number{color:#c2c4c6;font-variant-numeric:tabular-nums}.account-number{text-align:center}
+    .status{display:inline-flex;align-items:center;gap:6px;color:var(--green);font-size:10px}.status:before{width:7px;height:7px;border-radius:50%;background:currentColor;content:""}.status.is-disabled{color:#ed777d}
+    .empty{padding:20px;color:var(--muted);text-align:center;font-size:12px}
+    .detail{min-height:280px;padding:17px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:linear-gradient(145deg,rgba(255,255,255,.045),rgba(255,255,255,.015))}
+    .detail-placeholder{display:grid;place-items:center;min-height:240px;color:var(--muted);text-align:center;font-size:12px}
+    .detail-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.detail-top h2{overflow-wrap:anywhere;margin:0;font-size:20px}.detail-subtitle{margin-top:4px;color:var(--muted);font-size:11px}
+    .detail-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px}.detail-actions .button{min-height:34px;padding:6px 9px;font-size:10px}
+    .detail-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:16px 0;padding:12px 0;border-top:1px solid rgba(255,255,255,.09);border-bottom:1px solid rgba(255,255,255,.09)}
+    .meta-item span,.meta-item strong{display:block}.meta-item span{color:var(--muted);font-size:9px}.meta-item strong{margin-top:3px;overflow-wrap:anywhere;font-size:11px}
+    .detail-village{padding:14px 0;border-bottom:1px solid rgba(255,255,255,.09)}.detail-village:last-child{border-bottom:0;padding-bottom:0}
+    .detail-village-heading{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px}.detail-village-heading h3{margin:0;font-size:13px}.detail-village-heading span{color:var(--muted);font-size:10px}
+    .detail-columns{display:grid;grid-template-columns:1fr 1fr;gap:18px}.detail-block{min-width:0}.detail-block h3{margin:0 0 8px;font-size:11px}.detail-block h3 span{color:var(--muted);font-weight:500}
+    .record-list{display:grid;gap:6px}.record{padding:8px 9px;border:1px solid rgba(255,255,255,.08);border-radius:4px;background:rgba(0,0,0,.12)}.record strong,.record span{display:block;overflow-wrap:anywhere}.record strong{font-size:10px}.record span{margin-top:3px;color:var(--muted);font-size:9px}.record-empty{color:var(--muted);font-size:10px}
+    .footer-note{margin-top:22px;color:#85898d;font-size:10px}
+    @media(max-width:850px){.admin-grid{grid-template-columns:minmax(0,1fr)}.detail{min-height:0}.detail-placeholder{min-height:140px}}
+    @media(max-width:560px){.shell{padding:15px 14px 35px}.topbar{flex-wrap:wrap;padding-bottom:13px}.top-actions{width:100%;justify-content:space-between;gap:9px}.back-link{font-size:10px}.brand-mark{width:35px;height:35px}.intro{padding:25px 0 20px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.metric{min-height:67px;padding:11px}.metric strong{font-size:21px}.list-toolbar,.search-input{min-width:0}.account-list{max-width:100%;overflow-x:auto}.account-head,.account-row{min-width:540px}.detail{padding:13px}.detail-top{flex-direction:column}.detail-actions{justify-content:flex-start}.detail-meta{gap:9px}.detail-columns{grid-template-columns:1fr;gap:15px}}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Kembali ke YClash">
+        <span class="brand-mark" aria-hidden="true">YC</span>
+        <span class="brand-copy"><strong>YCLASH CONTROL</strong><span>Administrasi akun</span></span>
+      </a>
+      <div class="top-actions"><a class="back-link" href="/">Kembali ke tracker</a><button class="button" id="logoutButton" type="button" hidden>Keluar admin</button></div>
+    </header>
+    <section class="intro"><p class="eyebrow">YCLASH / ADMIN</p><h1>Kontrol akun</h1><p>Pantau akun terdaftar, lihat timer dan riwayat, serta kelola akses akun.</p></section>
+
+    <section class="login-wrap" id="loginGate" hidden>
+      <form class="login-panel" id="loginForm">
+        <h2>Login admin</h2><p>Masuk dengan password admin untuk membuka data akun YClash.</p>
+        <div class="field"><label for="adminPassword">Password admin</label><input id="adminPassword" name="password" type="password" autocomplete="current-password" maxlength="128" required></div>
+        <button class="button button-primary" type="submit">Masuk ke panel</button>
+        <div class="message" id="loginMessage" role="status" aria-live="polite"></div>
+      </form>
+    </section>
+
+    <section id="adminWorkspace" hidden>
+      <div class="metrics" aria-label="Ringkasan akun">
+        <div class="metric"><strong id="accountTotal">0</strong><span>Akun terdaftar</span></div>
+        <div class="metric"><strong id="activeUpgradeTotal">0</strong><span>Upgrade aktif</span></div>
+        <div class="metric"><strong id="activePotionTotal">0</strong><span>Potion aktif</span></div>
+        <div class="metric"><strong id="disabledTotal">0</strong><span>Akun nonaktif</span></div>
+      </div>
+      <div class="admin-grid">
+        <section aria-labelledby="accountsHeading">
+          <div class="section-heading"><h2 id="accountsHeading">Akun terdaftar</h2><span id="accountCount">0 akun</span></div>
+          <div class="list-toolbar"><input class="search-input" id="accountSearch" type="search" placeholder="Cari username atau Discord" aria-label="Cari akun"></div>
+          <div class="account-list" role="table" aria-label="Daftar akun">
+            <div class="account-head" role="row"><span role="columnheader">Username</span><span role="columnheader">Daftar</span><span role="columnheader">Desa</span><span role="columnheader">Upgrade</span><span role="columnheader">Potion</span><span role="columnheader">Status</span></div>
+            <div id="accountRows" role="rowgroup"></div>
+          </div>
+          <p class="footer-note">Password dan hash akun tidak ditampilkan di panel ini.</p>
+        </section>
+        <section aria-labelledby="detailHeading">
+          <div class="section-heading"><h2 id="detailHeading">Detail akun</h2><span id="detailHint">Pilih akun dari daftar</span></div>
+          <div class="detail" id="accountDetail"><div class="detail-placeholder">Pilih akun untuk melihat profil dan data tracker.</div></div>
+        </section>
+      </div>
+    </section>
+  </main>
+  <script>
+    const loginGate=document.getElementById('loginGate');
+    const adminWorkspace=document.getElementById('adminWorkspace');
+    const accountRows=document.getElementById('accountRows');
+    const accountDetail=document.getElementById('accountDetail');
+    const loginMessage=document.getElementById('loginMessage');
+    let accounts=[];
+    let selectedId=null;
+
+    async function api(url,options={}){
+      const response=await fetch(url,{...options,credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json',...options.headers}});
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(result.error||'Permintaan gagal.');
+      return result;
+    }
+    function showLogin(){
+      loginGate.hidden=false;adminWorkspace.hidden=true;document.getElementById('logoutButton').hidden=true;
+      loginMessage.textContent='';document.getElementById('adminPassword').focus();
+    }
+    function showWorkspace(){
+      loginGate.hidden=true;adminWorkspace.hidden=false;document.getElementById('logoutButton').hidden=false;
+    }
+    function dateText(value){return value?new Date(value).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}):'—';}
+    function dateTimeText(value){return value?new Date(value).toLocaleString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'—';}
+    function node(tag,className,text){const item=document.createElement(tag);if(className)item.className=className;if(text!==undefined)item.textContent=text;return item;}
+    function renderAccounts(){
+      const query=document.getElementById('accountSearch').value.trim().toLowerCase();
+      const filtered=accounts.filter(account=>`${account.username} ${account.discordUsername||''} ${account.discordHandle||''}`.toLowerCase().includes(query));
+      accountRows.replaceChildren();
+      document.getElementById('accountCount').textContent=`${filtered.length} dari ${accounts.length} akun`;
+      if(!filtered.length){accountRows.append(node('div','empty',accounts.length?'Tidak ada akun yang cocok.':'Belum ada akun terdaftar.'));return;}
+      for(const account of filtered){
+        const row=node('button','account-row'+(selectedId===account.id?' is-selected':''));row.type='button';row.setAttribute('role','row');row.setAttribute('aria-label',`Detail akun ${account.username}`);
+        row.addEventListener('click',()=>selectAccount(account.id));
+        row.append(node('span','account-name',account.username));
+        row.append(node('span','account-date',dateText(account.createdAt)));
+        row.append(node('span','account-number',String(account.villageCount||1)));
+        row.append(node('span','account-number',String(account.activeUpgradeCount)));
+        row.append(node('span','account-number',String(account.potionCount)));
+        const status=node('span','status'+(account.disabled?' is-disabled':''),account.disabled?'Nonaktif':'Aktif');row.append(status);
+        accountRows.append(row);
+      }
+    }
+    function renderRecords(container,items,kind){
+      container.replaceChildren();
+      if(!items.length){container.append(node('span','record-empty',kind==='upgrade'?'Tidak ada upgrade aktif.':kind==='potion'?'Tidak ada potion aktif.':'Belum ada riwayat.'));return;}
+      for(const item of items){
+        const record=node('div','record');
+        record.append(node('strong','',kind==='potion'?item.name:`${item.building||'Upgrade'} · ${item.level||''}`));
+        record.append(node('span','',kind==='upgrade'?`Selesai ${dateTimeText(item.endsAt)}`:kind==='potion'?`Selesai ${dateTimeText(item.endsAt)}`:`Selesai ${dateTimeText(item.finishedAt)}`));
+        container.append(record);
+      }
+    }
+    function renderDetail(data){
+      const {account}=data;const profiles=Array.isArray(data.profiles)?data.profiles:[];accountDetail.replaceChildren();
+      const top=node('div','detail-top');
+      const identity=node('div','');identity.append(node('h2','',account.username));
+      const discordLabel=account.discordLinked?`${account.discordUsername||'Discord tertaut'}${account.discordHandle?` · @${account.discordHandle}`:''}`:'Belum ditautkan';
+      identity.append(node('div','detail-subtitle',discordLabel));top.append(identity);
+      const actions=node('div','detail-actions');
+      const toggle=node('button','button'+(account.disabled?' button-primary':''),account.disabled?'Aktifkan akun':'Nonaktifkan');toggle.type='button';toggle.disabled=account.username==='owner'&&!account.disabled;
+      toggle.addEventListener('click',()=>changeStatus(account.id,!account.disabled));actions.append(toggle);
+      const remove=node('button','button button-danger','Hapus akun');remove.type='button';remove.disabled=account.username==='owner';remove.addEventListener('click',()=>deleteAccount(account));actions.append(remove);
+      top.append(actions);accountDetail.append(top);
+      const meta=node('div','detail-meta');
+      const metaItems=[['Terdaftar',dateTimeText(account.createdAt)],['Status',account.disabled?'Nonaktif':'Aktif'],['Discord',discordLabel],['Profil desa',String(profiles.length)]];
+      for(const [label,value] of metaItems){const item=node('div','meta-item');item.append(node('span','',label),node('strong','',value));meta.append(item);}
+      accountDetail.append(meta);
+      let completedCount=0;
+      for(const profile of profiles){
+        const village=node('section','detail-village');
+        const heading=node('div','detail-village-heading');heading.append(node('h3','',profile.name),node('span','',`${profile.builders||5} builder`));village.append(heading);
+        const columns=node('div','detail-columns');
+        const active=Array.isArray(profile.active)?profile.active:[];
+        const potions=(Array.isArray(profile.potions)?profile.potions:[]).filter(item=>item.endsAt>Date.now());
+        const completed=Array.isArray(profile.completed)?profile.completed:[];completedCount+=completed.length;
+        const activeBlock=node('section','detail-block');activeBlock.append(node('h3','',`Upgrade aktif (${active.length})`));const activeList=node('div','record-list');renderRecords(activeList,active,'upgrade');activeBlock.append(activeList);
+        const potionBlock=node('section','detail-block');potionBlock.append(node('h3','',`Potion aktif (${potions.length})`));const potionList=node('div','record-list');renderRecords(potionList,potions,'potion');potionBlock.append(potionList);
+        const completedBlock=node('section','detail-block');completedBlock.append(node('h3','',`Riwayat selesai (${completed.length})`));const completedList=node('div','record-list');renderRecords(completedList,completed.slice(0,8),'completed');completedBlock.append(completedList);
+        columns.append(activeBlock,potionBlock,completedBlock);village.append(columns);accountDetail.append(village);
+      }
+      document.getElementById('detailHint').textContent=`${profiles.length} desa · ${completedCount} riwayat`;
+    }
+    async function selectAccount(id){
+      selectedId=id;renderAccounts();
+      try{renderDetail(await api(`/api/admin/accounts/${encodeURIComponent(id)}`));}
+      catch(error){document.getElementById('detailHint').textContent=error.message;}
+    }
+    async function loadAccounts(){
+      accounts=await api('/api/admin/accounts');
+      document.getElementById('accountTotal').textContent=accounts.length;
+      document.getElementById('activeUpgradeTotal').textContent=accounts.reduce((sum,item)=>sum+item.activeUpgradeCount,0);
+      document.getElementById('activePotionTotal').textContent=accounts.reduce((sum,item)=>sum+item.potionCount,0);
+      document.getElementById('disabledTotal').textContent=accounts.filter(item=>item.disabled).length;
+      renderAccounts();
+      if(selectedId&&accounts.some(item=>item.id===selectedId))await selectAccount(selectedId);
+      else{selectedId=null;accountDetail.innerHTML='<div class="detail-placeholder">Pilih akun untuk melihat profil dan data tracker.</div>';document.getElementById('detailHint').textContent='Pilih akun dari daftar';}
+    }
+    async function changeStatus(id,disabled){
+      try{await api(`/api/admin/accounts/${encodeURIComponent(id)}/status`,{method:'PATCH',body:JSON.stringify({disabled})});await loadAccounts();}
+      catch(error){alert(error.message);}
+    }
+    async function deleteAccount(account){
+      if(!window.confirm(`Hapus akun ${account.username} beserta semua timer dan riwayatnya secara permanen?`))return;
+      try{await api(`/api/admin/accounts/${encodeURIComponent(account.id)}`,{method:'DELETE'});selectedId=null;await loadAccounts();}
+      catch(error){alert(error.message);}
+    }
+    document.getElementById('loginForm').addEventListener('submit',async event=>{
+      event.preventDefault();loginMessage.textContent='';
+      const password=document.getElementById('adminPassword').value;
+      try{await api('/api/admin/login',{method:'POST',body:JSON.stringify({password})});event.target.reset();showWorkspace();await loadAccounts();}
+      catch(error){loginMessage.textContent=error.message;}
+    });
+    document.getElementById('accountSearch').addEventListener('input',renderAccounts);
+    document.getElementById('logoutButton').addEventListener('click',async()=>{
+      try{await api('/api/admin/logout',{method:'POST',body:'{}'});}catch{}
+      accounts=[];selectedId=null;showLogin();
+    });
+    (async()=>{
+      try{const session=await api('/api/admin/session');if(!session.authenticated){showLogin();return;}showWorkspace();await loadAccounts();}
+      catch{showLogin();}
+    })();
+  </script>
+</body>
+</html>

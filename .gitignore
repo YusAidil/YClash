@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Runtime secrets and user data
+.env
+.env.*
+!.env.example
+data/
+
+# Production-only deployment helpers
+set-admin-password.*
+set-discord-config.*
+set-discord-channel.*
+
+# Logs, backups, and editor/OS files
+*.log
+npm-debug.log*
+*.bak
+*.bak.*
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Private keys and certificates
+*.key
+*.pem
+*.ppk
+*.p12
+*.pfx
