@@ -2,6 +2,8 @@
 
 A private-by-account Clash of Clans village tracker with upgrade and potion timers, event listings, account review, and optional Discord notifications.
 
+Live app: [yclash.duckdns.org](https://yclash.duckdns.org/)
+
 ## Requirements
 
 - Node.js 20 LTS or newer

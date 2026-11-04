@@ -85,4 +85,6 @@ Jika bot gagal mengirim pesan, pastikan bot masih berada di server dan memiliki 
 6. Ganti `server_name` di konfigurasi Nginx dengan domain milikmu, lalu terbitkan sertifikat dan paksa redirect ke HTTPS: `sudo certbot --nginx -d DOMAIN_MILIKMU --redirect`. Setelah berhasil, aktifkan aplikasi: `sudo systemctl enable --now coc-tracker`.
 7. Buka domain HTTPS milikmu. Pengguna bisa mendaftar untuk mengelola timer privat mereka sendiri. Pantau log dengan `sudo journalctl -u coc-tracker -f`.
 
+Instance YClash saat ini menggunakan `yclash.duckdns.org`. Konfigurasi awal Nginx-nya tersedia di [nginx-yclash-duckdns.conf](nginx-yclash-duckdns.conf); setelah mengaktifkannya, jalankan `sudo certbot --nginx -d yclash.duckdns.org --redirect` untuk memasang HTTPS dan redirect.
+
 Simpan `data/upgrades.json` pada disk VM yang persisten dan backup secara berkala. Jangan meletakkan token Discord atau password admin di repo publik. Password yang dibuat dengan helper harus 20-128 karakter, huruf dan angka saja.
