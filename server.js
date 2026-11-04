@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const express = require('express');
-const { ApplicationCommandOptionType, Client, EmbedBuilder, Events, GatewayIntentBits } = require('discord.js');
+const { ActionRowBuilder, ApplicationCommandOptionType, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, Events, GatewayIntentBits } = require('discord.js');
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
@@ -847,18 +847,27 @@ async function finishDueUpgrades(discordClient) {
         try {
           const finishedAt = Date.now();
           const embed = new EmbedBuilder()
-            .setColor(0xe50914)
+            .setColor(0xe3a940)
+            .setAuthor({ name: `YClash · ${account.username}`, ...(account.discordAvatarUrl ? { iconURL: account.discordAvatarUrl } : {}) })
             .setTitle('Upgrade selesai')
-            .setDescription(`**${account.username} · ${state.name}** · **${upgrade.building}** sekarang berada di **${upgrade.level}** dan siap digunakan.`)
+            .setDescription(`**${upgrade.building}** berhasil mencapai **${upgrade.level}** dan siap digunakan.`)
             .addFields(
+              { name: 'Desa', value: state.name || 'Desa Utama', inline: true },
+              { name: 'Tag pemain', value: state.playerTag || 'Belum ditautkan', inline: true },
               { name: 'Durasi', value: formatDuration(finishedAt - upgrade.startedAt), inline: true },
-              { name: 'Mulai', value: `<t:${Math.floor(upgrade.startedAt / 1000)}:t>`, inline: true },
+              { name: 'Mulai', value: `<t:${Math.floor(upgrade.startedAt / 1000)}:f>`, inline: true },
               { name: 'Selesai', value: `<t:${Math.floor(finishedAt / 1000)}:R>`, inline: true }
             )
             .setFooter({ text: 'YClash · Clash of Clans' })
             .setTimestamp(finishedAt);
           const discordUserId = /^\d{17,20}$/.test(account.discordUserId || '') ? account.discordUserId : null;
-          const message = { embeds: [embed], allowedMentions: { parse: [], ...(discordUserId ? { users: [discordUserId] } : {}) } };
+          const message = {
+            embeds: [embed],
+            components: [new ActionRowBuilder().addComponents(
+              new ButtonBuilder().setLabel('Buka YClash').setStyle(ButtonStyle.Link).setURL('https://yclash.duckdns.org/')
+            )],
+            allowedMentions: { parse: [], ...(discordUserId ? { users: [discordUserId] } : {}) }
+          };
           if (discordUserId) message.content = `<@${discordUserId}>`;
           await channel.send(message);
         } catch (error) {
