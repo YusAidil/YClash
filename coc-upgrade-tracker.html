@@ -79,6 +79,26 @@
   .empty{padding:30px 15px;text-align:center;color:var(--muted);font-size:12px;line-height:1.6}
   .empty-mark{margin-bottom:8px;font-size:25px;color:var(--gold)}
   .form-wrap{padding:15px 17px 17px}
+  .screenshot-import{margin:0 0 15px;padding:12px;border:1px solid var(--line);border-radius:7px;background:rgba(255,255,255,.025)}
+  .screenshot-import-title{margin:0 0 9px;font-size:11px}
+  .screenshot-import-controls{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:7px;align-items:center}
+  .screenshot-import-controls input{min-width:0;width:100%;height:35px;color:var(--muted);font-size:10px}
+  .screenshot-import-controls button{width:auto;padding:8px 10px}
+  .screenshot-source-preview{display:block;width:100%;max-height:200px;margin-top:10px;border:1px solid var(--line);border-radius:5px;background:#111;object-fit:contain}
+  .screenshot-preview{display:grid;gap:8px;margin-top:10px}
+  .screenshot-candidate{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px 9px;padding:9px;border:1px solid var(--line);border-radius:6px;background:rgba(0,0,0,.12)}
+  .screenshot-candidate-check{grid-row:1 / span 2;width:16px;height:16px;margin:2px 0 0;accent-color:var(--lime)}
+  .screenshot-candidate-title{min-width:0;overflow-wrap:anywhere;color:var(--muted);font-size:10px}
+  .screenshot-candidate-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.8fr);gap:6px}
+  .screenshot-candidate-fields input{min-width:0;width:100%;height:34px;padding:0 8px;border:1px solid var(--line);border-radius:5px;color:var(--ink);background:#1d2b22;font-size:10px}
+  .screenshot-duration-fields{grid-column:1/-1;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}
+  .screenshot-consent{display:flex;align-items:flex-start;gap:8px;margin-top:10px;color:var(--muted);font-size:9px;line-height:1.45;cursor:pointer}
+  .screenshot-consent input{width:15px;height:15px;flex:none;margin:1px 0 0;accent-color:var(--lime)}
+  .screenshot-preview-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .screenshot-preview-actions button{width:100%;padding:9px 7px;font-size:9px}
+  .screenshot-preview-actions button:last-child{grid-column:1/-1}
+  .screenshot-feedback-delete{width:100%;margin-top:8px;padding:7px;font-size:9px}
+  .screenshot-status{margin:8px 0 0;color:var(--muted);font-size:9px;line-height:1.45}
   .field{margin-bottom:12px}
   .field label{display:block;margin-bottom:6px;color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
   .field input,.field select{width:100%;height:39px;padding:0 10px;border:1px solid var(--line);border-radius:6px;outline:none;color:var(--ink);background:#1d2b22;font-size:12px}
@@ -727,6 +747,16 @@
           </div>
           <div class="discord-link-code-panel" hidden><span>Kode tautan · berlaku 10 menit</span><code class="discord-link-code"></code><p>Di server Discord yang sama, jalankan <code>/yclash-link</code> dan masukkan kode ini.</p></div>
         </div>
+        <div class="screenshot-import">
+          <h3 class="screenshot-import-title">Impor dari screenshot</h3>
+          <div class="screenshot-import-controls"><input id="upgradeScreenshot" type="file" accept="image/png,image/jpeg,image/webp" aria-label="Pilih screenshot upgrade"><button class="quiet-button" id="scanUpgradeScreenshot" type="button">Pindai lokal</button><button class="quiet-button" id="scanUpgradeScreenshotAi" type="button" disabled>Coba AI</button></div>
+          <p class="screenshot-status" id="screenshotImportStatus" aria-live="polite">Timer akan ditinjau sebelum ditambahkan. Foto tidak disimpan.</p>
+          <label class="screenshot-consent"><input id="screenshotAiConsent" type="checkbox"><span>Izinkan foto ini dikirim ke Google Gemini untuk dibaca. Hanya dikirim saat kamu menekan Coba AI.</span></label>
+          <img class="screenshot-source-preview" id="screenshotSourcePreview" alt="Screenshot yang sedang ditinjau" hidden>
+          <div class="screenshot-preview" id="screenshotImportPreview" hidden></div>
+          <label class="screenshot-consent"><input id="screenshotFeedbackConsent" type="checkbox"><span>Ikut bantu tingkatkan pemindaian: simpan foto dan koreksi secara privat hingga 90 hari. Opsional, dan bisa dihapus kapan saja.</span></label>
+          <button class="quiet-button screenshot-feedback-delete" id="deleteScreenshotFeedback" type="button">Hapus semua contoh koreksi saya</button>
+        </div>
         <div class="field"><label for="building">Nama bangunan</label><input id="building" name="building" maxlength="48" placeholder="Contoh: Archer Tower" required></div>
         <div class="field"><label for="level">Level berikutnya</label><input id="level" name="level" maxlength="20" placeholder="Contoh: Level 15" required></div>
         <div class="field"><label>Durasi upgrade aktual</label><div class="duration-fields">
@@ -917,6 +947,11 @@
   let toastTimeout;
   let loading = false;
   let playerLookupLoading = false;
+  let screenshotCandidates = [];
+  let screenshotOriginalCandidates = [];
+  let screenshotFile = null;
+  let screenshotPreviewUrl = null;
+  let screenshotScanned = false;
 
   async function api(url,options={}){
     const response=await fetch(url,{...options,credentials:'same-origin',headers:{'Content-Type':'application/json',...options.headers}});
@@ -1225,6 +1260,150 @@
       showToast(`Timer ${building} dimulai. Estimasi selesai ${new Date(result.endsAt).toLocaleString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}.`);refreshState();
     }).catch(error=>showToast(error.message));
   });
+  function renderScreenshotPreview(){
+    const preview=document.getElementById('screenshotImportPreview');
+    preview.hidden=!screenshotScanned;
+    preview.innerHTML=(screenshotCandidates.length?screenshotCandidates.map((item,index)=>{
+      const totalMinutes=Math.ceil(item.remainingMs/60000);
+      const days=Math.floor(totalMinutes/1440),hours=Math.floor(totalMinutes%1440/60),minutes=totalMinutes%60;
+      const label=item.building||'Timer baru';
+      return `<article class="screenshot-candidate">
+        <input class="screenshot-candidate-check" type="checkbox" data-candidate-selected="${index}" checked aria-label="Impor ${escapeHtml(label)}">
+        <div><span class="screenshot-candidate-title"><span>${escapeHtml(label)} · hasil scan ${formatTime(item.remainingMs)}</span><button class="quiet-button" data-candidate-remove="${index}" type="button">Hapus</button></span>
+        <div class="screenshot-candidate-fields"><input data-candidate-building="${index}" maxlength="48" value="${escapeHtml(item.building)}" aria-label="Nama upgrade"><input data-candidate-level="${index}" maxlength="24" value="${escapeHtml(item.level||'Belum diketahui')}" aria-label="Level upgrade"><div class="duration-fields screenshot-duration-fields"><input data-candidate-days="${index}" type="number" min="0" max="3650" value="${days}" aria-label="Sisa hari"><input data-candidate-hours="${index}" type="number" min="0" max="23" value="${hours}" aria-label="Sisa jam"><input data-candidate-minutes="${index}" type="number" min="0" max="59" value="${minutes}" aria-label="Sisa menit"></div></div></div>
+      </article>`;
+    }).join(''):'<p class="screenshot-status">Belum ada timer terbaca. Kamu bisa menambahkannya secara manual.</p>')+`<div class="screenshot-preview-actions"><button class="quiet-button" id="addScreenshotCandidate" type="button" ${screenshotCandidates.length>=10?'disabled':''}>Tambah timer manual</button><button class="quiet-button" id="cancelScreenshotImport" type="button">Batal</button><button class="primary-button" id="importScreenshotUpgrades" type="button">Impor pilihan</button></div>`;
+    document.getElementById('addScreenshotCandidate')?.addEventListener('click',addScreenshotCandidate);
+    document.getElementById('cancelScreenshotImport')?.addEventListener('click',clearScreenshotPreview);
+    document.getElementById('importScreenshotUpgrades')?.addEventListener('click',importScreenshotUpgrades);
+    preview.querySelectorAll('[data-candidate-remove]').forEach(button=>button.addEventListener('click',()=>{
+      screenshotCandidates.splice(Number(button.dataset.candidateRemove),1);
+      renderScreenshotPreview();
+    }));
+  }
+  function addScreenshotCandidate(){
+    if(screenshotCandidates.length>=10)return;
+    screenshotCandidates.push({building:'',level:'Belum diketahui',remainingMs:60*60000});
+    renderScreenshotPreview();
+    document.querySelector(`[data-candidate-building="${screenshotCandidates.length-1}"]`)?.focus();
+  }
+  function clearScreenshotPreview(){
+    screenshotCandidates=[];
+    screenshotOriginalCandidates=[];
+    screenshotFile=null;
+    screenshotScanned=false;
+    if(screenshotPreviewUrl)URL.revokeObjectURL(screenshotPreviewUrl);
+    screenshotPreviewUrl=null;
+    document.getElementById('upgradeScreenshot').value='';
+    document.getElementById('screenshotSourcePreview').hidden=true;
+    document.getElementById('screenshotSourcePreview').removeAttribute('src');
+    document.getElementById('screenshotFeedbackConsent').checked=false;
+    document.getElementById('screenshotAiConsent').checked=false;
+    updateAiScanAvailability();
+    document.getElementById('screenshotImportStatus').textContent='Timer akan ditinjau sebelum ditambahkan. Foto tidak disimpan.';
+    renderScreenshotPreview();
+  }
+  function updateAiScanAvailability(){
+    document.getElementById('scanUpgradeScreenshotAi').disabled=!screenshotFile||!document.getElementById('screenshotAiConsent').checked;
+  }
+  document.getElementById('upgradeScreenshot').addEventListener('change',event=>{
+    screenshotCandidates=[];screenshotOriginalCandidates=[];screenshotScanned=false;screenshotFile=event.target.files[0]||null;
+    if(screenshotPreviewUrl)URL.revokeObjectURL(screenshotPreviewUrl);
+    screenshotPreviewUrl=screenshotFile?URL.createObjectURL(screenshotFile):null;
+    const image=document.getElementById('screenshotSourcePreview');
+    image.hidden=!screenshotPreviewUrl;
+    if(screenshotPreviewUrl)image.src=screenshotPreviewUrl;else image.removeAttribute('src');
+    document.getElementById('screenshotFeedbackConsent').checked=false;
+    document.getElementById('screenshotAiConsent').checked=false;
+    updateAiScanAvailability();
+    document.getElementById('screenshotImportStatus').textContent=screenshotFile?'Foto siap dipindai. Foto tidak disimpan kecuali kamu ikut berkontribusi.':'Timer akan ditinjau sebelum ditambahkan. Foto tidak disimpan.';
+    renderScreenshotPreview();
+  });
+  document.getElementById('screenshotAiConsent').addEventListener('change',updateAiScanAvailability);
+  document.getElementById('scanUpgradeScreenshot').addEventListener('click',async event=>{
+    const file=document.getElementById('upgradeScreenshot').files[0];
+    if(!file){showToast('Pilih screenshot upgrade terlebih dahulu.');return;}
+    if(!['image/png','image/jpeg','image/webp'].includes(file.type)){showToast('Gunakan foto PNG, JPG, atau WebP.');return;}
+    if(file.size>8*1024*1024){showToast('Ukuran screenshot maksimal 8 MB.');return;}
+    const button=event.currentTarget,status=document.getElementById('screenshotImportStatus');
+    screenshotCandidates=[];screenshotOriginalCandidates=[];screenshotScanned=false;renderScreenshotPreview();
+    button.disabled=true;status.textContent='Membaca timer pada screenshot...';
+    try{
+      const response=await fetch('/api/upgrades/scan',{method:'POST',credentials:'same-origin',headers:{'Content-Type':file.type},body:file});
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(result.error||'Screenshot gagal dipindai.');
+        screenshotOriginalCandidates=Array.isArray(result.upgrades)?result.upgrades.map(item=>({...item})):[];
+        screenshotCandidates=screenshotOriginalCandidates.map(item=>({...item}));
+        screenshotFile=file;screenshotScanned=true;
+        status.textContent=`${screenshotCandidates.length} timer ditemukan. Koreksi atau tambah baris yang terlewat sebelum impor.`;
+      renderScreenshotPreview();
+    }catch(error){status.textContent=error.message;showToast(error.message);}
+    finally{button.disabled=false;}
+  });
+  document.getElementById('scanUpgradeScreenshotAi').addEventListener('click',async event=>{
+    const file=screenshotFile;
+    if(!file){showToast('Pilih screenshot upgrade terlebih dahulu.');return;}
+    if(!document.getElementById('screenshotAiConsent').checked){showToast('Setujui pengiriman foto ke Google terlebih dahulu.');return;}
+    if(!['image/png','image/jpeg','image/webp'].includes(file.type)){showToast('Gunakan foto PNG, JPG, atau WebP.');return;}
+    if(file.size>8*1024*1024){showToast('Ukuran screenshot maksimal 8 MB.');return;}
+    const button=event.currentTarget,status=document.getElementById('screenshotImportStatus');
+    button.disabled=true;status.textContent='Mengirim foto ke Google Gemini untuk dibaca...';
+    try{
+      const response=await fetch('/api/upgrades/scan-ai',{method:'POST',credentials:'same-origin',headers:{'Content-Type':file.type,'X-YClash-AI-Consent':'true'},body:file});
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(result.error||'Pemindaian AI gagal.');
+      screenshotCandidates=Array.isArray(result.upgrades)?result.upgrades.map(item=>({...item})):[];
+      screenshotScanned=true;
+      status.textContent=`${screenshotCandidates.length} timer ditemukan oleh AI. Periksa dan koreksi hasil sebelum impor.`;
+      renderScreenshotPreview();
+    }catch(error){status.textContent=error.message;showToast(error.message);}
+    finally{updateAiScanAvailability();}
+  });
+    function encodeFeedbackHeader(value){
+      const bytes=new TextEncoder().encode(value);let binary='';
+      bytes.forEach(byte=>binary+=String.fromCharCode(byte));
+      return btoa(binary);
+    }
+  async function importScreenshotUpgrades(){
+    const preview=document.getElementById('screenshotImportPreview');
+      const upgrades=[...preview.querySelectorAll('.screenshot-candidate')].filter(row=>row.querySelector('[data-candidate-selected]').checked).map(row=>{
+        const days=Number(row.querySelector('[data-candidate-days]').value)||0;
+        const hours=Number(row.querySelector('[data-candidate-hours]').value)||0;
+        const minutes=Number(row.querySelector('[data-candidate-minutes]').value)||0;
+        return {
+          building:row.querySelector('[data-candidate-building]').value.trim(),
+          level:row.querySelector('[data-candidate-level]').value.trim()||'Belum diketahui',
+          remainingMs:((days*24+hours)*60+minutes)*60000
+        };
+      });
+    if(!upgrades.length){showToast('Pilih minimal satu timer untuk diimpor.');return;}
+      if(upgrades.some(item=>!item.building||!Number.isSafeInteger(item.remainingMs)||item.remainingMs<60000||item.remainingMs>3650*86400000)){
+        showToast('Periksa nama dan sisa waktu. Timer harus minimal satu menit dan maksimal 3650 hari.');return;
+      }
+    try{
+      const result=await api('/api/upgrades/import',{method:'POST',body:JSON.stringify({upgrades})});
+        let feedbackMessage='';
+        if(document.getElementById('screenshotFeedbackConsent').checked&&screenshotFile&&screenshotScanned){
+          try{
+            const feedback={predictions:screenshotOriginalCandidates,corrections:upgrades};
+            const response=await fetch('/api/upgrades/feedback',{method:'POST',credentials:'same-origin',headers:{'Content-Type':screenshotFile.type,'X-YClash-Corrections':encodeFeedbackHeader(JSON.stringify(feedback))},body:screenshotFile});
+            const saved=await response.json().catch(()=>({}));
+            if(!response.ok)throw new Error(saved.error||'Contoh koreksi tidak tersimpan.');
+            feedbackMessage=' Contoh koreksimu tersimpan untuk evaluasi OCR.';
+          }catch(error){feedbackMessage=` Timer tersimpan, tetapi kontribusi dataset gagal: ${error.message}`;}
+        }
+      clearScreenshotPreview();
+        showToast(`${result.count} timer berhasil diimpor dari screenshot.${feedbackMessage}`);
+      refreshState();
+    }catch(error){showToast(error.message);}
+  }
+    document.getElementById('deleteScreenshotFeedback').addEventListener('click',async()=>{
+      if(!window.confirm('Hapus semua foto dan koreksi yang pernah kamu sumbangkan?'))return;
+      try{
+        const result=await api('/api/upgrades/feedback',{method:'DELETE',body:'{}'});
+        showToast(result.deleted?`${result.deleted} contoh foto dan koreksi dihapus.`:'Tidak ada contoh kontribusi untuk dihapus.');
+      }catch(error){showToast(error.message);}
+    });
   ['days','hours','minutes'].forEach(id=>document.getElementById(id).addEventListener('input',updateUpgradeEstimate));
   updateUpgradeEstimate();
 

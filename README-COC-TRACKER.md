@@ -22,7 +22,7 @@ Jadwal event saat ini dikurasi dari artikel resmi Supercell untuk November 2026 
 
 1. Pasang Node.js versi LTS.
 2. Salin `.env.example` menjadi `.env`.
-3. Atur `ADMIN_PASSWORD` sepanjang 20-128 huruf/angka di `.env`. Password ini dipakai untuk login panel admin di `/admin` dan untuk migrasi data tracker lama. Untuk mengaktifkan review tag, isi `COC_API_TOKEN` dengan token dari Supercell Developer Portal setelah menambahkan IP server ke allowlist. Jangan unggah atau kirim isi `.env`.
+3. Atur `ADMIN_PASSWORD` sepanjang 20-128 huruf/angka di `.env`. Password ini dipakai untuk login panel admin di `/admin` dan untuk migrasi data tracker lama. Untuk mengaktifkan review tag, isi `COC_API_TOKEN` dengan token dari Supercell Developer Portal setelah menambahkan IP server ke allowlist. Pemindaian AI bersifat opsional; isi `GEMINI_API_KEY` dengan API key dari Google AI Studio, atau biarkan kosong untuk menonaktifkannya. Jangan unggah atau kirim isi `.env`.
 4. Di PowerShell, dari folder proyek jalankan:
 
    ```powershell
@@ -53,7 +53,7 @@ Untuk mengubah konfigurasi Discord, atur `DISCORD_BOT_TOKEN` dan `DISCORD_CHANNE
 
 ## Membuatnya online
 
-Deploy proyek sebagai aplikasi Node.js pada host yang tetap berjalan. Atur build/install command `npm install` dan start command `npm start`. Masukkan `ADMIN_PASSWORD`, `DISCORD_BOT_TOKEN`, `DISCORD_CHANNEL_ID`, dan `COC_API_TOKEN` melalui pengaturan environment variables di host, bukan di source code. Tambahkan IP publik host ke allowlist token API CoC.
+Deploy proyek sebagai aplikasi Node.js pada host yang tetap berjalan. Atur build/install command `npm install` dan start command `npm start`. Masukkan `ADMIN_PASSWORD`, `DISCORD_BOT_TOKEN`, `DISCORD_CHANNEL_ID`, `COC_API_TOKEN`, dan `GEMINI_API_KEY` melalui pengaturan environment variables di host, bukan di source code. Pemindaian AI memakai `gemini-3.5-flash-lite` secara default; `GEMINI_MODEL` dapat diatur untuk memilih model lain yang kompatibel. Foto hanya dikirim ke Google setelah pengguna memberi izin untuk foto tersebut dan menekan tombol Coba AI. Tambahkan IP publik host ke allowlist token API CoC.
 
 Pasang persistent disk/volume pada folder `data` di dalam proyek. Aplikasi menyimpan akun ke `data/accounts.json` dan timer upgrade serta potion per akun ke `data/user-states.json`; `data/upgrades.json` hanya dipakai untuk migrasi dari versi lama. Penyimpanan filesystem sementara dapat menghapus data saat restart atau redeploy. Pilih layanan yang tidak menidurkan aplikasi agar bot tetap terhubung dan pengingat berjalan 24 jam. Setelah deploy, pengguna dapat mendaftar untuk tracker pribadi.
 

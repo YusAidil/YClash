@@ -4,7 +4,9 @@ const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const express = require('express');
+const sharp = require('sharp');
 const { ActionRowBuilder, ApplicationCommandOptionType, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, Events, GatewayIntentBits } = require('discord.js');
+const { MAX_IMPORTED_UPGRADES, MAX_SCREENSHOT_BYTES, recognizeActiveUpgrades } = require('./upgrade-image-import');
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
@@ -12,6 +14,7 @@ const dataDirectory = process.env.YCLASH_DATA_DIRECTORY || path.join(__dirname, 
 const legacyDataFile = path.join(dataDirectory, 'upgrades.json');
 const accountsFile = path.join(dataDirectory, 'accounts.json');
 const userStatesFile = path.join(dataDirectory, 'user-states.json');
+const screenshotFeedbackDirectory = path.join(dataDirectory, 'ocr-feedback');
 const sessions = new Map();
 const adminSessions = new Map();
 const authFailures = new Map();
@@ -22,8 +25,13 @@ const AUTH_LIMIT = 10;
 const DISCORD_LINK_TTL = 10 * 60 * 1000;
 const MAX_VILLAGE_PROFILES = 10;
 const PLAYER_CACHE_TTL = 5 * 60 * 1000;
+const SCREENSHOT_FEEDBACK_RETENTION = 90 * 24 * 60 * 60 * 1000;
+const MAX_SCREENSHOT_FEEDBACK = 500;
+const MAX_SCREENSHOT_FEEDBACK_PER_USER = 50;
+const MAX_SCREENSHOT_PIXELS = 20_000_000;
 const USERNAME_PATTERN = /^[a-z0-9_]{3,24}$/;
 const discordLinkCodes = new Map();
+const pendingScreenshotImports = new Map();
 const playerCache = new Map();
 const POTION_TYPES = {
   builder: { name: 'Builder Potion', duration: 60 * 60 * 1000 },
@@ -117,6 +125,229 @@ function normalizeState(saved) {
 
 function getCurrentVillage(state) {
   return state.profiles.find(profile => profile.id === state.activeProfileId) || state.profiles[0];
+}
+
+function normalizeImportedUpgrades(value) {
+  if (!Array.isArray(value) || !value.length || value.length > MAX_IMPORTED_UPGRADES) {
+    throw new Error(`Pilih 1-${MAX_IMPORTED_UPGRADES} timer dari hasil scan.`);
+  }
+  return value.map(item => {
+    const building = typeof item.building === 'string' ? item.building.trim().slice(0, 48) : '';
+    const level = typeof item.level === 'string' && item.level.trim() ? item.level.trim().slice(0, 24) : 'Belum diketahui';
+    const remainingMs = Number(item.remainingMs);
+    if (!building || !Number.isSafeInteger(remainingMs) || remainingMs < 60000 || remainingMs > 3650 * 86400000) {
+      throw new Error('Nama upgrade atau sisa waktunya tidak valid.');
+    }
+    return { building, level, remainingMs };
+  });
+}
+
+async function recognizeScreenshotWithGemini(imageBuffer) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    const error = new Error('Pemindaian AI belum dikonfigurasi di server.');
+    error.status = 503;
+    throw error;
+  }
+
+  const model = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+  if (!/^[a-zA-Z0-9._-]{1,80}$/.test(model)) {
+    const error = new Error('Konfigurasi model AI tidak valid.');
+    error.status = 503;
+    throw error;
+  }
+
+  let image;
+  try {
+    const source = sharp(imageBuffer, { limitInputPixels: MAX_SCREENSHOT_PIXELS });
+    const metadata = await source.metadata();
+    if (!['jpeg', 'png', 'webp'].includes(metadata.format) || !metadata.width || !metadata.height || metadata.width * metadata.height > MAX_SCREENSHOT_PIXELS) {
+      throw new Error('invalid image');
+    }
+    image = await source.rotate().resize({ width: 2048, height: 2048, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer();
+  } catch {
+    const error = new Error('Foto tidak dapat dibaca. Unggah file PNG, JPG, atau WebP yang valid.');
+    error.status = 400;
+    throw error;
+  }
+
+  const schema = {
+    type: 'OBJECT',
+    properties: {
+      upgrades: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            building: { type: 'STRING' },
+            level: { type: 'STRING' },
+            remainingMs: { type: 'INTEGER' }
+          },
+          required: ['building', 'level', 'remainingMs'],
+          propertyOrdering: ['building', 'level', 'remainingMs']
+        }
+      }
+    },
+    required: ['upgrades'],
+    propertyOrdering: ['upgrades']
+  };
+
+  let providerResponse;
+  try {
+    providerResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      signal: AbortSignal.timeout(90000),
+      body: JSON.stringify({
+        contents: [{ parts: [
+          { text: 'Baca screenshot game Clash of Clans. Ambil hanya timer upgrade aktif pada panel Bangunan dan Pahlawan. Abaikan seluruh bagian Saran Peningkatan. Untuk setiap timer, tulis nama bangunan/pahlawan, level bila terbaca (kalau tidak, "Belum diketahui"), dan sisa waktu dalam milidetik sebagai integer. Jangan menebak teks atau angka yang tidak terbaca; abaikan baris yang tidak yakin. Maksimal 10 timer. Balas hanya dengan JSON sesuai schema.' },
+          { inlineData: { mimeType: 'image/jpeg', data: image.toString('base64') } }
+        ] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: schema,
+          maxOutputTokens: 1024,
+          thinkingConfig: { thinkingLevel: 'LOW' }
+        }
+      })
+    });
+  } catch (error) {
+    const timeout = error.name === 'TimeoutError' || error.name === 'AbortError';
+    const wrapped = new Error(timeout ? 'Pemindaian AI melewati batas waktu. Coba lagi.' : 'Layanan AI tidak dapat dihubungi.');
+    wrapped.status = timeout ? 504 : 502;
+    throw wrapped;
+  }
+
+  if (!providerResponse.ok) {
+    console.error('Gemini screenshot scan failed with status:', providerResponse.status);
+    const error = new Error('Layanan AI gagal membaca foto. Coba lagi nanti.');
+    error.status = 502;
+    throw error;
+  }
+
+  try {
+    const payload = await providerResponse.json();
+    const text = payload.candidates?.[0]?.content?.parts?.find(part => typeof part.text === 'string')?.text;
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed.upgrades) || parsed.upgrades.length > MAX_IMPORTED_UPGRADES) throw new Error('invalid candidates');
+    return parsed.upgrades.map(item => normalizeImportedUpgrades([item])[0]);
+  } catch {
+    const error = new Error('Hasil pemindaian AI tidak valid. Coba foto lain atau gunakan pemindaian lokal.');
+    error.status = 502;
+    throw error;
+  }
+}
+
+async function saveImportedUpgrades(village, candidates) {
+  const startedAt = Date.now();
+  const imported = candidates.map(({ building, level, remainingMs }) => ({
+    id: crypto.randomUUID(),
+    building,
+    level,
+    startedAt,
+    baseDuration: remainingMs,
+    effectiveDuration: remainingMs,
+    endsAt: startedAt + remainingMs,
+    source: 'screenshot'
+  }));
+  village.active.unshift(...imported);
+  try {
+    await saveUserStates();
+    return imported;
+  } catch (error) {
+    const importedIds = new Set(imported.map(item => item.id));
+    village.active = village.active.filter(item => !importedIds.has(item.id));
+    throw error;
+  }
+}
+
+function normalizeFeedbackRows(value, allowEmpty = false) {
+  if (!Array.isArray(value) || value.length > MAX_IMPORTED_UPGRADES || (!allowEmpty && !value.length)) {
+    throw new Error('Data koreksi screenshot tidak valid.');
+  }
+  return value.map(item => normalizeImportedUpgrades([item])[0]);
+}
+
+async function readScreenshotFeedbackRecords() {
+  let names;
+  try { names = await fs.readdir(screenshotFeedbackDirectory); }
+  catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+  return Promise.all(names.filter(name => name.endsWith('.json')).map(async name => {
+    try { return await readJson(path.join(screenshotFeedbackDirectory, name), null); }
+    catch { return null; }
+  })).then(records => records.filter(Boolean));
+}
+
+async function removeScreenshotFeedbackRecord(record) {
+  if (!/^[\da-f-]{36}\.json$/i.test(record.fileName || '')) return;
+  const recordPath = path.join(screenshotFeedbackDirectory, record.fileName);
+  await fs.unlink(recordPath).catch(error => { if (error.code !== 'ENOENT') throw error; });
+  const imageName = `${record.fileName.slice(0, -5)}.jpg`;
+  await fs.unlink(path.join(screenshotFeedbackDirectory, imageName)).catch(error => { if (error.code !== 'ENOENT') throw error; });
+}
+
+async function cleanupScreenshotFeedback() {
+  const records = await readScreenshotFeedbackRecords();
+  await Promise.all(records.filter(record => !Number.isFinite(record.expiresAt) || record.expiresAt <= Date.now()).map(removeScreenshotFeedbackRecord));
+}
+
+async function saveScreenshotFeedback(userId, imageBuffer, payload) {
+  if (!Buffer.isBuffer(imageBuffer) || !imageBuffer.length || imageBuffer.length > MAX_SCREENSHOT_BYTES) {
+    throw new Error('Foto untuk dataset harus berukuran maksimal 8 MB.');
+  }
+  const predictions = normalizeFeedbackRows(payload.predictions, true);
+  const corrections = normalizeFeedbackRows(payload.corrections);
+  let metadata;
+  try { metadata = await sharp(imageBuffer, { limitInputPixels: MAX_SCREENSHOT_PIXELS }).metadata(); }
+  catch { throw new Error('Foto untuk dataset tidak dapat dibaca.'); }
+  if (!['jpeg', 'png', 'webp'].includes(metadata.format) || !metadata.width || !metadata.height || metadata.width * metadata.height > MAX_SCREENSHOT_PIXELS) {
+    throw new Error('Format foto dataset tidak valid atau resolusinya terlalu besar.');
+  }
+
+  await cleanupScreenshotFeedback();
+  const records = await readScreenshotFeedbackRecords();
+  if (records.length >= MAX_SCREENSHOT_FEEDBACK || records.filter(record => record.userId === userId).length >= MAX_SCREENSHOT_FEEDBACK_PER_USER) {
+    throw new Error('Batas contoh dataset sudah tercapai. Hapus contoh lama sebelum mengirim lagi.');
+  }
+
+  const id = crypto.randomUUID();
+  const fileName = `${id}.json`;
+  await fs.mkdir(screenshotFeedbackDirectory, { recursive: true, mode: 0o700 });
+  if (process.platform !== 'win32') await fs.chmod(screenshotFeedbackDirectory, 0o700);
+  let sanitizedImage;
+  try {
+    sanitizedImage = await sharp(imageBuffer, { limitInputPixels: MAX_SCREENSHOT_PIXELS })
+      .rotate()
+      .jpeg({ quality: 85, mozjpeg: true })
+      .toBuffer();
+  } catch { throw new Error('Foto untuk dataset tidak dapat dibaca.'); }
+  const record = {
+    fileName,
+    imageFile: `${id}.jpg`,
+    userId,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + SCREENSHOT_FEEDBACK_RETENTION,
+    predictions,
+    corrections
+  };
+
+  await fs.writeFile(path.join(screenshotFeedbackDirectory, record.imageFile), sanitizedImage, { mode: 0o600 });
+  try { await writeJsonAtomically(path.join(screenshotFeedbackDirectory, fileName), record); }
+  catch (error) {
+    await fs.unlink(path.join(screenshotFeedbackDirectory, record.imageFile)).catch(() => {});
+    throw error;
+  }
+  return id;
+}
+
+async function deleteScreenshotFeedback(userId) {
+  const records = await readScreenshotFeedbackRecords();
+  const ownedRecords = records.filter(record => record.userId === userId);
+  await Promise.all(ownedRecords.map(removeScreenshotFeedbackRecord));
+  return ownedRecords.length;
 }
 
 function getVillageSummaries(state) {
@@ -707,6 +938,78 @@ app.post('/api/upgrades', requireUser, async (request, response, next) => {
   } catch (error) { next(error); }
 });
 
+app.post('/api/upgrades/scan', requireUser, express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: MAX_SCREENSHOT_BYTES }), async (request, response, next) => {
+  if (!Buffer.isBuffer(request.body) || !request.body.length) {
+    return response.status(400).json({ error: 'Pilih foto PNG, JPG, atau WebP terlebih dahulu.' });
+  }
+  try {
+    const upgrades = await recognizeActiveUpgrades(request.body);
+    response.json({ ok: true, upgrades });
+  } catch (error) {
+    if (/^(Foto harus|Foto tidak dapat dibaca|Format foto harus|Timer aktif tidak terbaca)/.test(error.message)) {
+      return response.status(400).json({ error: error.message });
+    }
+    next(error);
+  }
+});
+
+app.post('/api/upgrades/scan-ai', requireUser, express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: MAX_SCREENSHOT_BYTES }), async (request, response, next) => {
+  if (request.get('X-YClash-AI-Consent') !== 'true') {
+    return response.status(403).json({ error: 'Setujui pengiriman foto ke Google sebelum memakai pemindaian AI.' });
+  }
+  if (!Buffer.isBuffer(request.body) || !request.body.length) {
+    return response.status(400).json({ error: 'Pilih foto PNG, JPG, atau WebP terlebih dahulu.' });
+  }
+  try {
+    const upgrades = await recognizeScreenshotWithGemini(request.body);
+    response.json({ ok: true, upgrades });
+  } catch (error) {
+    if (error.status) return response.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
+app.post('/api/upgrades/import', requireUser, async (request, response, next) => {
+  let candidates;
+  try { candidates = normalizeImportedUpgrades(request.body.upgrades); }
+  catch (error) { return response.status(400).json({ error: error.message }); }
+
+  try {
+    const state = getCurrentVillage(userStates.get(request.user.id));
+    const imported = await saveImportedUpgrades(state, candidates);
+    response.status(201).json({ ok: true, count: imported.length, upgrades: imported });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/upgrades/feedback', requireUser, express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: MAX_SCREENSHOT_BYTES }), async (request, response, next) => {
+  const encodedFeedback = request.get('X-YClash-Corrections');
+  if (!Buffer.isBuffer(request.body) || !request.body.length || !encodedFeedback || encodedFeedback.length > 8192) {
+    return response.status(400).json({ error: 'Foto dan koreksi yang valid diperlukan untuk mengirim contoh.' });
+  }
+
+  let payload;
+  try { payload = JSON.parse(Buffer.from(encodedFeedback, 'base64').toString('utf8')); }
+  catch { return response.status(400).json({ error: 'Format koreksi dataset tidak valid.' }); }
+
+  try {
+    const feedbackId = await saveScreenshotFeedback(request.user.id, request.body, payload);
+    response.status(201).json({ ok: true, feedbackId });
+  } catch (error) {
+    if (/^(Foto untuk dataset|Format foto dataset|Data koreksi|Pilih 1-|Nama upgrade atau sisa waktunya)/.test(error.message)) {
+      return response.status(400).json({ error: error.message });
+    }
+    if (error.message.startsWith('Batas contoh dataset')) return response.status(429).json({ error: error.message });
+    next(error);
+  }
+});
+
+app.delete('/api/upgrades/feedback', requireUser, async (request, response, next) => {
+  try {
+    const deleted = await deleteScreenshotFeedback(request.user.id);
+    response.json({ ok: true, deleted });
+  } catch (error) { next(error); }
+});
+
 app.post('/api/upgrades/:id/complete', requireUser, async (request, response, next) => {
   try {
     const state = getCurrentVillage(userStates.get(request.user.id));
@@ -824,6 +1127,9 @@ app.delete('/api/potions/:id', requireUser, async (request, response, next) => {
 app.use('/data', (request, response) => response.sendStatus(404));
 app.use(express.static(__dirname, { extensions: ['html'], index: 'coc-upgrade-tracker.html' }));
 app.use((error, request, response, next) => {
+  if (/^\/api\/upgrades\/(?:scan|scan-ai|feedback)$/.test(request.path) && (error.status === 413 || error.type === 'entity.too.large')) {
+    return response.status(413).json({ error: 'Ukuran screenshot maksimal 8 MB.' });
+  }
   console.error(error);
   if (!response.headersSent) response.status(500).json({ error: 'Terjadi kesalahan server.' });
 });
@@ -894,26 +1200,154 @@ async function registerDiscordLinkCommand(client) {
   const channel = await client.channels.fetch(process.env.DISCORD_CHANNEL_ID);
   if (!channel?.guild) throw new Error('Channel not found in a Discord server.');
 
-  const command = {
-    name: 'yclash-link',
-    description: 'Tautkan akun Discord ke akun YClash',
-    options: [{
-      type: ApplicationCommandOptionType.String,
-      name: 'code',
-      description: 'Kode tautan dari dashboard YClash',
-      required: true,
-      min_length: 12,
-      max_length: 12
-    }]
-  };
+  const commandDefinitions = [
+    {
+      name: 'yclash-link',
+      description: 'Tautkan akun Discord ke akun YClash',
+      options: [{
+        type: ApplicationCommandOptionType.String,
+        name: 'code',
+        description: 'Kode tautan dari dashboard YClash',
+        required: true,
+        min_length: 12,
+        max_length: 12
+      }]
+    },
+    {
+      name: 'yclash-import',
+      description: 'Pindai screenshot timer upgrade aktif',
+      options: [{
+        type: ApplicationCommandOptionType.Attachment,
+        name: 'screenshot',
+        description: 'Screenshot daftar upgrade aktif',
+        required: true
+      }]
+    }
+  ];
   const commands = await channel.guild.commands.fetch();
-  const existing = commands.find(item => item.name === command.name);
-  if (existing) await existing.edit(command);
-  else await channel.guild.commands.create(command);
+  for (const command of commandDefinitions) {
+    const existing = commands.find(item => item.name === command.name);
+    if (existing) await existing.edit(command);
+    else await channel.guild.commands.create(command);
+  }
+}
+
+function formatImportedDuration(milliseconds) {
+  const totalMinutes = Math.ceil(milliseconds / 60000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor(totalMinutes % 1440 / 60);
+  const minutes = totalMinutes % 60;
+  return [days ? `${days} hari` : '', hours ? `${hours} jam` : '', minutes ? `${minutes} menit` : ''].filter(Boolean).join(' ') || 'kurang dari 1 menit';
+}
+
+async function fetchDiscordScreenshot(attachment) {
+  const imageTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
+  const contentType = typeof attachment.contentType === 'string' ? attachment.contentType.split(';')[0].trim().toLowerCase() : '';
+  if (!imageTypes.has(contentType)) throw new Error('Lampiran harus berupa gambar PNG, JPG, atau WebP.');
+  if (attachment.size > MAX_SCREENSHOT_BYTES) throw new Error('Ukuran screenshot maksimal 8 MB.');
+
+  let url;
+  try { url = new URL(attachment.url); }
+  catch { throw new Error('URL lampiran Discord tidak valid.'); }
+  if (url.protocol !== 'https:' || !['cdn.discordapp.com', 'media.discordapp.net'].includes(url.hostname)) {
+    throw new Error('Screenshot harus diunggah sebagai lampiran Discord.');
+  }
+
+  const response = await fetch(url, { signal: AbortSignal.timeout(15000), redirect: 'error' });
+  if (!response.ok) throw new Error('Screenshot tidak dapat diunduh dari Discord.');
+  const declaredLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_SCREENSHOT_BYTES) throw new Error('Ukuran screenshot maksimal 8 MB.');
+  const image = Buffer.from(await response.arrayBuffer());
+  if (!image.length || image.length > MAX_SCREENSHOT_BYTES) throw new Error('Ukuran screenshot maksimal 8 MB.');
+  return image;
+}
+
+async function handleDiscordScreenshotCommand(interaction) {
+  await interaction.deferReply({ ephemeral: true });
+  try {
+    const account = accounts.find(item => item.discordUserId === interaction.user.id);
+    if (!account) {
+      await interaction.editReply('Tautkan akun terlebih dahulu dari dashboard YClash dengan `/yclash-link`.');
+      return;
+    }
+
+    const attachment = interaction.options.getAttachment('screenshot', true);
+    const image = await fetchDiscordScreenshot(attachment);
+    const candidates = await recognizeActiveUpgrades(image);
+    const state = userStates.get(account.id);
+    const village = getCurrentVillage(state);
+    const importId = crypto.randomUUID();
+    for (const [id, pending] of pendingScreenshotImports) {
+      if (pending.expiresAt <= Date.now()) pendingScreenshotImports.delete(id);
+    }
+    pendingScreenshotImports.set(importId, {
+      accountId: account.id,
+      discordUserId: interaction.user.id,
+      profileName: village.name,
+      candidates,
+      expiresAt: Date.now() + 5 * 60 * 1000
+    });
+
+    const embed = new EmbedBuilder()
+      .setColor(0xe3a940)
+      .setTitle('Pratinjau impor upgrade')
+      .setDescription(`Profil **${village.name}** · pilih konfirmasi untuk memulai semua timer berikut dengan sisa waktu dari screenshot.\n\n${candidates.map((item, index) => `**${index + 1}. ${item.building}**\nSisa ${formatImportedDuration(item.remainingMs)}`).join('\n\n')}`)
+      .setFooter({ text: 'Tidak ada timer yang disimpan sebelum konfirmasi · berlaku 5 menit' });
+    const buttons = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`yclash_import_confirm:${importId}`).setLabel('Konfirmasi impor').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`yclash_import_cancel:${importId}`).setLabel('Batal').setStyle(ButtonStyle.Secondary)
+    );
+    await interaction.editReply({ embeds: [embed], components: [buttons] });
+  } catch (error) {
+    await interaction.editReply(`Screenshot gagal diproses: ${error.message}`);
+  }
+}
+
+async function handleDiscordScreenshotButton(interaction) {
+  const [action, importId] = interaction.customId.split(':');
+  const pending = pendingScreenshotImports.get(importId);
+  if (!pending || pending.expiresAt <= Date.now()) {
+    pendingScreenshotImports.delete(importId);
+    await interaction.reply({ content: 'Pratinjau sudah kedaluwarsa. Pindai screenshot kembali.', ephemeral: true });
+    return;
+  }
+  if (pending.discordUserId !== interaction.user.id) {
+    await interaction.reply({ content: 'Hanya pengguna yang memulai pemindaian yang dapat mengonfirmasinya.', ephemeral: true });
+    return;
+  }
+
+  await interaction.deferUpdate();
+  pendingScreenshotImports.delete(importId);
+  if (action === 'yclash_import_cancel') {
+    await interaction.editReply({ content: 'Impor dibatalkan. Tidak ada timer yang ditambahkan.', embeds: [], components: [] });
+    return;
+  }
+
+  const account = accounts.find(item => item.id === pending.accountId && item.discordUserId === interaction.user.id);
+  const state = account ? userStates.get(account.id) : null;
+  if (!state) {
+    await interaction.editReply({ content: 'Akun YClash tidak lagi tersedia. Tidak ada timer yang ditambahkan.', embeds: [], components: [] });
+    return;
+  }
+  try {
+    const imported = await saveImportedUpgrades(getCurrentVillage(state), pending.candidates);
+    await interaction.editReply({ content: `${imported.length} timer berhasil ditambahkan ke profil **${pending.profileName}**.`, embeds: [], components: [] });
+  } catch (error) {
+    await interaction.editReply({ content: `Timer gagal disimpan: ${error.message}`, embeds: [], components: [] });
+  }
 }
 
 async function handleDiscordLinkInteraction(interaction) {
-  if (!interaction.isChatInputCommand() || interaction.commandName !== 'yclash-link') return;
+  if (interaction.isButton() && interaction.customId.startsWith('yclash_import_')) {
+    await handleDiscordScreenshotButton(interaction);
+    return;
+  }
+  if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName === 'yclash-import') {
+    await handleDiscordScreenshotCommand(interaction);
+    return;
+  }
+  if (interaction.commandName !== 'yclash-link') return;
   await interaction.deferReply({ ephemeral: true });
 
   const code = interaction.options.getString('code', true).trim().toUpperCase();
@@ -970,6 +1404,9 @@ async function refreshLinkedDiscordProfiles(client) {
 
 async function start() {
   await initializeUserData();
+  await cleanupScreenshotFeedback();
+  const feedbackCleanupTimer = setInterval(() => cleanupScreenshotFeedback().catch(error => console.error('Gagal membersihkan dataset OCR:', error.message)), 24 * 60 * 60 * 1000);
+  feedbackCleanupTimer.unref();
   const discordConfigured = process.env.DISCORD_BOT_TOKEN && process.env.DISCORD_CHANNEL_ID;
   if (discordConfigured) {
     discordClient = new Client({ intents: [GatewayIntentBits.Guilds] });

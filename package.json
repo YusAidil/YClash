@@ -8,6 +8,8 @@
   "dependencies": {
     "discord.js": "^14.22.1",
     "dotenv": "^16.4.7",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "sharp": "^0.35.5",
+    "tesseract.js": "^7.0.0"
   }
 }
